@@ -1,0 +1,302 @@
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import bcrypt from "bcrypt";
+import userModel from "../models/user.model.js";
+import sessionModel from "../models/session.model.js";
+import config from "../config/config.js";
+import { sendEmail } from "../services/email.service.js";
+import { generateOtp, getOtpHtml } from "../utils/utils.js";
+import otpModel from "../models/otp.model.js";
+
+export async function register(req, res) {
+  const { userName, email, password } = req.body;
+
+  const isAlreadyRegistered = await userModel.findOne({
+    $or: [{ userName }, { email }],
+  });
+
+  if (isAlreadyRegistered) {
+    res.status(409).json({
+      message: "Username or email is already registered",
+    });
+  }
+
+  const hashPassword = await userModel.hashPassword(password);
+
+  const user = await userModel.create({
+    userName,
+    email,
+    password: hashPassword,
+  });
+
+  const otp = generateOtp();
+  const html = getOtpHtml(otp);
+
+  const otpHash = await crypto.createHash("SHA256").update(otp).digest("hex");
+
+  await otpModel.create({
+    email,
+    user: user._id,
+    otpHash,
+  });
+
+  await sendEmail(email, `OTP Code is ${otp}`, "", html);
+
+  res.status(201).json({
+    message: "User registered successfully",
+    user: {
+      username: user.userName,
+      email: user.email,
+      verified: user.verified,
+    },
+  });
+
+  return user;
+}
+
+//Login
+export async function login(req, res) {
+  const { email, password } = req.body;
+
+  const user = await userModel.findOne({ email }).select("+password");
+
+  if (!user) {
+    return res.status(400).json({
+      message: "Invalid email or password",
+    });
+  }
+
+  if (!user.verified) {
+    return res.status(400).json({
+      message: "Email not verified",
+    });
+  }
+
+  const isValidPassword = await user.isValidPassword(password);
+
+  if (!isValidPassword) {
+    return res.status(400).json({
+      message: "Invalid Password",
+    });
+  }
+
+  const refreshToken = jwt.sign(
+    {
+      id: user._id,
+    },
+    config.JWT_SECRET,
+    {
+      expiresIn: "7d",
+    },
+  );
+
+  const refreshTokenHash = await crypto
+    .createHash("SHA256")
+    .update(refreshToken)
+    .digest("hex");
+
+  const session = await sessionModel.create({
+    user: user._id,
+    refreshTokenHash,
+    ip: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+
+  const accessToken = jwt.sign(
+    {
+      id: user._id,
+      sessionId: session._id,
+    },
+    config.JWT_SECRET,
+    {
+      expiresIn: "15m",
+    },
+  );
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  res.status(201).json({
+    message: "Log in successfully",
+    user: {
+      username: user.userName,
+      email: user.email,
+    },
+    token: accessToken,
+  });
+}
+
+//Refresh-token
+export async function refreshToken(req, res) {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      message: "Refresh token is not available",
+    });
+  }
+
+  const decoded = jwt.verify(refreshToken, config.JWT_SECRET);
+  const refreshTokenHash = await crypto
+    .createHash("SHA256")
+    .update(refreshToken)
+    .digest("hex");
+
+  const session = await sessionModel.findOne({
+    refreshTokenHash,
+    revoked: false,
+  });
+
+  if (!session) {
+    return res.status(400).json({
+      message: "Session not found",
+    });
+  }
+
+  const accessToken = jwt.sign(
+    {
+      id: decoded.id,
+    },
+    config.JWT_SECRET,
+    {
+      expiresIn: "15m",
+    },
+  );
+
+  const newRefreshToken = jwt.sign(
+    {
+      id: decoded.id,
+    },
+    config.JWT_SECRET,
+    {
+      expiresIn: "7d",
+    },
+  );
+
+  const newRefreshTokenHash = await crypto
+    .createHash("SHA256")
+    .update(newRefreshToken)
+    .digest("hex");
+
+  session.refreshTokenHash = newRefreshTokenHash;
+  await session.save();
+
+  res.cookie("refreshToken", newRefreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  res.status(200).json({
+    message: "Access token refresh successfully",
+    token: accessToken,
+  });
+}
+
+//Logout controller
+export async function logout(req, res) {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      message: "Refresh token is not available",
+    });
+  }
+
+  const refreshTokenHash = await crypto
+    .createHash("SHA256")
+    .update(refreshToken)
+    .digest("hex");
+
+  const session = await sessionModel.findOne({
+    refreshTokenHash,
+    revoked: false,
+  });
+
+  if (!session) {
+    return res.status(400).json({
+      message: "Session not found",
+    });
+  }
+
+  session.revoked = true;
+
+  await session.save();
+
+  res.clearCookie("refreshToken");
+
+  res.status(200).json({
+    message: "Logged out successfully",
+  });
+}
+
+//logut-All
+export async function logoutAll(req, res) {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (!refreshToken) {
+    return res.status(401).json({
+      message: "Refresh token is not available",
+    });
+  }
+
+  const decoded = jwt.verify(refreshToken, config.JWT_SECRET);
+
+  await sessionModel.updateMany(
+    {
+      user: decoded.id,
+      revoked: false,
+    },
+    {
+      revoked: true,
+    },
+  );
+
+  res.clearCookie("refreshToken");
+
+  res.status(200).json({
+    message: "Logged out from all device successfully",
+  });
+}
+
+//OTP verifies
+export async function verifyEmail(req, res) {
+  const { otp, email } = req.body;
+
+  const otpHash = await crypto.createHash("SHA256").update(otp).digest("hex");
+
+  const otpDoc = await otpModel.findOne({
+    email,
+    otpHash,
+  });
+
+  if (!otpDoc) {
+    return res.status(400).json({
+      message: "Invalid otp",
+    });
+  }
+
+  const user = await userModel.findByIdAndUpdate(
+    otpDoc.user,
+    { verified: true },
+    { new: true },
+  );
+
+  await otpModel.deleteMany({
+    user: otpDoc.user,
+  });
+
+  return res.status(200).json({
+    message: "Email verified successfully",
+    user: {
+      userName: user.userName,
+      email: user.email,
+      verified: user.verified,
+    },
+  });
+}
