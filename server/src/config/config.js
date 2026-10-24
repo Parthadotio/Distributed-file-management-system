@@ -31,6 +31,17 @@ if(!process.env.GOOGLE_USER) {
     throw new Error("Google user is unavailable");
 }
 
+if(!process.env.GCP_PROJECT_ID) {
+    throw new Error("GCP project id is not avaiable");
+}
+
+if(!process.env.GCP_BUCKET_NAME) {
+    throw new Error("GCP bucket is not available");
+}
+
+if(!process.env.CLIENT_ORIGIN) {
+    throw new Error("client origin is not avaiable");
+}
 const config = {
     PORT: process.env.PORT,
     MONGO_URI: process.env.DATABASE_URL,
@@ -39,6 +50,9 @@ const config = {
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REFRESH_TOKEN,
     GOOGLE_USER: process.env.GOOGLE_USER,
+    GCP_PROJECT_ID: process.env.GCP_PROJECT_ID,
+    GCP_BUCKET_NAME: process.env.GCP_BUCKET_NAME,
+    CLIENT_ORIGIN: process.env.CLIENT_ORIGIN,
 }
 
 

@@ -1,14 +1,15 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import bcrypt from "bcrypt";
 import userModel from "../models/user.model.js";
 import sessionModel from "../models/session.model.js";
 import config from "../config/config.js";
 import { sendEmail } from "../services/email.service.js";
-import { generateOtp, getOtpHtml } from "../utils/utils.js";
+import { generateOtp, getOtpHtml } from "../utils/emailTemplate.js";
 import otpModel from "../models/otp.model.js";
 
-export async function register(req, res) {
+//Register
+export async function 
+register(req, res) {
   const { userName, email, password } = req.body;
 
   const isAlreadyRegistered = await userModel.findOne({
