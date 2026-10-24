@@ -1,8 +1,12 @@
-
-import Home from './screens/Home'
+import AppRoutes from "./routes/appRoutes";
+import { UserProvider } from "./context/user.context";
 
 const App = () => {
-  return <Home />
-}
+  return (
+    <UserProvider>
+      <AppRoutes />
+    </UserProvider>
+  );
+};
 
-export default App
+export default App;

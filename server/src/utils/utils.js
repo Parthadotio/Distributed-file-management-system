@@ -24,7 +24,6 @@ export function getOtpHtml(otp) {
                 <div class="content">
                     <p>Your One-Time Password (OTP) is:</p>
                     <div class="otp-code">${otp}</div>
-                    // <p>This code will expire in 10 minutes.</p>
                     <p>Do not share this code with anyone.</p>
                 </div>
                 <div class="footer">
